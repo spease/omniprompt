@@ -1,5 +1,5 @@
 [package]
-name = "swiss-prompt"
+name = "omniprompt"
 version = "0.1.0"
 authors = ["Steven Pease <peasteven@gmail.com>"]
 description = "A very customized prompt"
