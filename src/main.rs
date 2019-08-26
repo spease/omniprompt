@@ -161,17 +161,19 @@ impl FieldWriter {
             },
             Function::Platform => {
                 stream.set_color(&self.color_cache.red)?;
+                let arch = target_info::Target::arch();
                 let oi = os_info::get();
                 #[cfg(unix)]
                 write!(
                     stream,
-                    "{}/{} ({})",
-                    nix::sys::utsname::uname().release(),
+                    "{} ({})/{}/{}",
                     oi.os_type(),
-                    oi.version()
+                    oi.version(),
+                    nix::sys::utsname::uname().release(),
+                    arch
                 )?;
                 #[cfg(not(unix))]
-                write!(stream, "{} ({})", oi.os_type(), oi.version())?;
+                write!(stream, "{} ({})/{}", oi.os_type(), oi.version(), arch)?;
             },
             Function::Ppid => {
                 stream.set_color(&self.color_cache.yellow)?;

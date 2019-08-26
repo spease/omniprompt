@@ -20,6 +20,7 @@ failure = "0.1.5"
 sysinfo = "0.9.1"
 no-panic = "0.1.11"
 bytesize = "1.0.0"
+target_info = "0.1.0"
 
 [profile.release]
 panic = "abort"
