@@ -25,4 +25,5 @@ bytesize = "1.0.0"
 panic = "abort"
 
 [features]
+default = ["git"]
 git = ["git2"]
