@@ -1,7 +1,6 @@
 use bytesize::ByteSize;
 use chrono::Local;
 use failure::{Error, ResultExt, format_err};
-use no_panic::no_panic;
 #[cfg(feature="git")]
 use git2::Repository;
 use std::ffi::{CStr, OsString};
@@ -107,7 +106,6 @@ impl Drop for FieldWriter {
 }
 
 impl FieldWriter {
-    #[no_panic]
     fn new(stream: StandardStream, exit_code: OsString) -> Self {
         FieldWriter {
             color_cache: ColorCache::default(),

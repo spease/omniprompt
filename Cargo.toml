@@ -18,12 +18,8 @@ libc = "0.2.62"
 git2 = { version = "0.10.0", optional = true }
 failure = "0.1.5"
 sysinfo = "0.9.1"
-no-panic = "0.1.11"
 bytesize = "1.0.0"
 target_info = "0.1.0"
-
-[profile.release]
-panic = "abort"
 
 [features]
 default = ["git"]
