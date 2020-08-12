@@ -1,5 +1,6 @@
 use bytesize::ByteSize;
 use chrono::Local;
+#[macro_use]
 use failure::{Error, ResultExt, format_err};
 #[cfg(feature="git")]
 use git2::Repository;
