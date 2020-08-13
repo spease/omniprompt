@@ -1,7 +1,6 @@
 use bytesize::ByteSize;
 use chrono::Local;
-#[macro_use]
-use failure::{Error, ResultExt, format_err};
+use anyhow::{Context, Error, anyhow};
 #[cfg(feature="git")]
 use git2::Repository;
 use std::ffi::{CStr, OsStr, OsString};
@@ -112,7 +111,7 @@ impl FieldWriter {
         match function {
             Field::ExitCode => {
                 stream.set_color(if exit_code == "0" { &color_cache.green_bold } else { &color_cache.red_bold})?;
-                stream.write_all(exit_code.to_str().ok_or_else(||format_err!("Unable to convert exit_code to string"))?.as_bytes())?;
+                stream.write_all(exit_code.to_str().ok_or_else(||anyhow!("Unable to convert exit_code to string"))?.as_bytes())?;
             }
             #[cfg(feature="git")]
             Field::Git => {
@@ -146,9 +145,9 @@ impl FieldWriter {
             },
             Field::Ppid => {
                 stream.set_color(&color_cache.yellow)?;
-                let pid = sysinfo::get_current_pid().map_err(|e|format_err!("{}",e))?;
+                let pid = sysinfo::get_current_pid().map_err(|e|anyhow!("{}",e))?;
                 let si = sysinfo::System::new();
-                let parent_pid = si.get_process(pid).ok_or_else(||format_err!("Couldn't find current PID"))?.parent().ok_or_else(||format_err!("No parent for current process"))?;
+                let parent_pid = si.get_process(pid).ok_or_else(||anyhow!("Couldn't find current PID"))?.parent().ok_or_else(||anyhow!("No parent for current process"))?;
                 write!(stream, "{}", parent_pid)?;
             }
             Field::Prompt => {
@@ -195,9 +194,9 @@ impl FieldWriter {
                 stream.set_color(&color_cache.cyan_bold)?;
                 stream.write_all(whoami::hostname().as_bytes())?;
                 if let Some(ssh_connection) = std::env::var_os("SSH_CONNECTION") {
-                    let mut pieces = ssh_connection.to_str().ok_or_else(||format_err!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
-                    let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||format_err!("Missing server IP"))?)?;
-                    let ssh_server_port = u16::from_str(pieces.next().ok_or_else(||format_err!("Missing server port"))?)?;
+                    let mut pieces = ssh_connection.to_str().ok_or_else(||anyhow!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
+                    let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||anyhow!("Missing server IP"))?)?;
+                    let ssh_server_port = u16::from_str(pieces.next().ok_or_else(||anyhow!("Missing server port"))?)?;
 
                     stream.set_color(&color_cache.cyan)?;
                     write!(stream, " ({}:{})", ssh_server_ip, ssh_server_port)?;

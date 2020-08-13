@@ -8,6 +8,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0"
 termcolor = "1.0.5"
 nix = "0.15.0"
 whoami = "0.5.3"
@@ -16,7 +17,6 @@ os_info = "1.1.1"
 dirs = "2.0.2"
 libc = "0.2.62"
 git2 = { version = "0.10.0", default-features = false, optional = true }
-failure = { version = "= 0.1.5", default-features = false }
 sysinfo = "0.9.1"
 bytesize = "1.0.0"
 target_info = "0.1.0"
