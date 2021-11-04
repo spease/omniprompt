@@ -1,6 +1,6 @@
 use bytesize::ByteSize;
 use chrono::Local;
-use anyhow::{Context, Error, anyhow};
+use anyhow::{Context, Result, anyhow};
 #[cfg(feature="git")]
 use git2::Repository;
 use std::ffi::{CStr, OsStr, OsString};
@@ -8,10 +8,8 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
-use sysinfo::{NetworkExt, ProcessExt, SystemExt};
+use sysinfo::{NetworkExt, ProcessExt, RefreshKind, SystemExt};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLock, WriteColor};
-
-type Result<T> = ::std::result::Result<T, Error>;
 
 struct ColorCache {
     blue: ColorSpec,
@@ -121,10 +119,8 @@ impl FieldWriter {
                 }
             },
             Field::Network => {
-                let si = sysinfo::System::new();
-                let nw = si.get_network();
-                let upload = ByteSize(nw.get_income());
-                let download = ByteSize(nw.get_outcome());
+                let si = sysinfo::System::new_with_specifics(RefreshKind::new().with_networks());
+                let (upload, download) = si.networks().into_iter().map(|(_, nw)| (ByteSize(nw.received()), ByteSize(nw.transmitted()))).fold((ByteSize(0),ByteSize(0)), |sum,current|(sum.0+current.0, sum.1+current.1));
                 write!(stream, "↑{}↓{}", upload, download)?;
             },
             Field::Platform => {
@@ -145,9 +141,9 @@ impl FieldWriter {
             },
             Field::Ppid => {
                 stream.set_color(&color_cache.yellow)?;
+                let si = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes());
                 let pid = sysinfo::get_current_pid().map_err(|e|anyhow!("{}",e))?;
-                let si = sysinfo::System::new();
-                let parent_pid = si.get_process(pid).ok_or_else(||anyhow!("Couldn't find current PID"))?.parent().ok_or_else(||anyhow!("No parent for current process"))?;
+                let parent_pid = si.process(pid).ok_or_else(||anyhow!("Couldn't find current PID"))?.parent().ok_or_else(||anyhow!("No parent for current process"))?;
                 write!(stream, "{}", parent_pid)?;
             }
             Field::Prompt => {
