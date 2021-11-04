@@ -155,7 +155,8 @@ impl FieldWriter {
                 let cwd = std::env::current_dir()?;
                 let final_path = match dirs::home_dir() {
                     Some(home_dir) => match cwd.strip_prefix(home_dir) {
-                        Ok(relpath) => Path::new("~").join(relpath),
+                        Ok(relpath) if !relpath.as_os_str().is_empty() => Path::new("~").join(relpath),
+                        Ok(_) => "~".into(),
                         Err(_) => cwd,
                     },
                     None => cwd,
