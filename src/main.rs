@@ -3,7 +3,7 @@ use chrono::Local;
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature="git")]
 use git2::Repository;
-use std::ffi::{CStr, OsStr, OsString};
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
@@ -171,17 +171,10 @@ impl FieldWriter {
             #[cfg(unix)]
             Field::Tty => {
                 use std::os::unix::io::AsRawFd;
+                use std::os::unix::ffi::OsStrExt;
                 stream.set_color(&color_cache.yellow)?;
                 let stdin_fd = std::io::stdin().as_raw_fd();
-                let tty_name = unsafe {
-                    let tty_name_ptr = libc::ttyname(stdin_fd);
-                    if !tty_name_ptr.is_null() {
-                        CStr::from_ptr(tty_name_ptr).to_str()?
-                    } else {
-                        ""
-                    }
-                };
-                stream.write_all(tty_name.as_bytes())?;
+                stream.write_all(nix::unistd::ttyname(stdin_fd)?.into_os_string().as_os_str().as_bytes())?;
             }
             Field::Whoami => {
                 stream.set_color(&color_cache.cyan_bold)?;
