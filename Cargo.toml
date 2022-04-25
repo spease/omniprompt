@@ -1,6 +1,6 @@
 [package]
 name = "omniprompt"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Steven Pease <peasteven@gmail.com>"]
 description = "A very customized prompt"
 edition = "2018"
