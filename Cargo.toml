@@ -8,28 +8,27 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.'cfg(unix)'.dependencies]
-sysinfo = { package = "sysinfo", version = "0.23.10", default-features = false, optional = true }
+sysinfo = { package = "sysinfo", version = "0.30.13", default-features = false, optional = true }
 
 [target.'cfg(not(unix))'.dependencies]
-sysinfo = { package = "sysinfo", version = "0.23.10", default-features = false }
+sysinfo = { package = "sysinfo", version = "0.30.13", default-features = false }
 
 [dependencies]
-termcolor = { version = "1.1.3", default-features = false }
-nix = { version = "0.24.0", default-features = false, features = [ "feature" ], optional = true }
-whoami = { version = "1.2.1", default-features = false }
-chrono = { version = "0.4.19", default-features = false, features = [ "clock" ] }
+termcolor = { version = "1.4.1", default-features = false }
+nix = { version = "0.24.3", default-features = false, features = [ "feature" ], optional = true }
+whoami = { version = "1.5.1", default-features = false }
+chrono = { version = "0.4.38", default-features = false, features = [ "clock" ] }
 dirs = { version = "4.0.0", default-features = false }
-git2 = { version = "0.14.2", default-features = false, features = [ "vendored-libgit2" ], optional = true }
-os_info = { version = "3.2.0", default-features = false, optional = true }
-bytesize = { version = "1.1.0", default-features = false, optional = true }
-anyhow = { version = "1.0.57", default-features = false, features = [ "std" ] }
+git2 = { version = "0.14.4", default-features = false, features = [ "vendored-libgit2" ], optional = true }
+bytesize = { version = "1.3.0", default-features = false, optional = true }
+anyhow = { version = "1.0.86", default-features = false, features = [ "std" ] }
 
 [features]
 default = ["git","platform"]
 git = ["git2"]
 network = ["bytesize", "sysinfo"]
-platform = ["nix", "os_info"]
-tty = ["nix" ]
+platform = ["nix", "sysinfo"]
+tty = ["nix?/term"]
 
 [profile.release]
 codegen-units = 16

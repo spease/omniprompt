@@ -105,15 +105,10 @@ impl<'a> FieldWriter<'a> {
     }
 
     fn print_field(function: Field, color_cache: &ColorCache, exit_code: Option<i32>, stream: &mut StandardStreamLock<'a>) -> Result<()> {
-        #[cfg(any(feature="network",not(unix)))]
+        #[cfg(any(not(unix)))]
         let si = {
-            use sysinfo::{RefreshKind, SystemExt};
+            use sysinfo::{RefreshKind};
             let mut rk = RefreshKind::new();
-            #[cfg(feature="network")]
-            {
-                rk = rk.with_networks();
-            }
-            #[cfg(not(unix))]
             {
                 use sysinfo::ProcessRefreshKind;
                 rk = rk.with_processes(ProcessRefreshKind::new());
@@ -134,26 +129,25 @@ impl<'a> FieldWriter<'a> {
             },
             #[cfg(feature="network")]
             Field::Network => {
-                use sysinfo::NetworkExt;
                 use bytesize::ByteSize;
-                let (upload, download) = si.networks().into_iter().map(|(_, nw)| (ByteSize(nw.received()), ByteSize(nw.transmitted()))).fold((ByteSize(0),ByteSize(0)), |sum,current|(sum.0+current.0, sum.1+current.1));
+                let (upload, download) = sysinfo::Networks::new_with_refreshed_list().into_iter().map(|(_, nw)| (ByteSize(nw.received()), ByteSize(nw.transmitted()))).fold((ByteSize(0),ByteSize(0)), |sum,current|(sum.0+current.0, sum.1+current.1));
                 write!(stream, "↑{}↓{}", upload, download)?;
             },
             #[cfg(feature="platform")]
             Field::Platform => {
                 stream.set_color(&color_cache.red)?;
-                 let oi = os_info::get();
+                 if let Some(os_version) = sysinfo::System::os_version() {
+                     write!(stream, "{} ({})", sysinfo::System::distribution_id(), os_version)?;
+                 }
                  #[cfg(unix)]
                  write!(
                      stream,
-                     "{} ({})/{}/{}",
-                     oi.os_type(),
-                     oi.version(),
+                     "/{}/{}",
                      nix::sys::utsname::uname()?.release().to_string_lossy(),
                      std::env::consts::ARCH
                  )?;
                  #[cfg(not(unix))]
-                 write!(stream, "{} ({})/{}", oi.os_type(), oi.version(), std::env::consts::ARCH)?;
+                 write!(stream, "/{}", std::env::consts::ARCH)?;
             },
             Field::Ppid => {
                 stream.set_color(&color_cache.yellow)?;
@@ -192,10 +186,9 @@ impl<'a> FieldWriter<'a> {
             #[cfg(feature="tty")]
             Field::Tty => {
                 use std::os::unix::io::AsRawFd;
-                use std::os::unix::ffi::OsStrExt;
                 stream.set_color(&color_cache.yellow)?;
                 let stdin_fd = std::io::stdin().as_raw_fd();
-                stream.write_all(nix::unistd::ttyname(stdin_fd)?.as_str_lossy())?;
+                stream.write_all(nix::unistd::ttyname(stdin_fd)?.to_string_lossy().as_bytes())?;
             }
             Field::Whoami => {
                 stream.set_color(&color_cache.cyan_bold)?;
@@ -203,7 +196,7 @@ impl<'a> FieldWriter<'a> {
                 stream.set_color(&color_cache.cyan)?;
                 stream.write_all(b"@")?;
                 stream.set_color(&color_cache.cyan_bold)?;
-                stream.write_all(whoami::hostname().as_bytes())?;
+                stream.write_all(whoami::fallible::hostname().unwrap_or_else(|_|String::from("???")).as_bytes())?;
                 if let Some(ssh_connection) = std::env::var_os("SSH_CONNECTION") {
                     let mut pieces = ssh_connection.to_str().ok_or_else(||anyhow!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
                     let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||anyhow!("Missing server IP"))?)?;
@@ -263,6 +256,8 @@ fn print_default(exit_code: Option<i32>) -> Result<()> {
     fw.print_section(Field::Time)?;
     #[cfg(feature="platform")]
     fw.print_section(Field::Platform)?;
+    #[cfg(feature="network")]
+    fw.print_section(Field::Network)?;
     fw.print_line()?;
     fw.print_section(Field::ExitCode)?;
     #[cfg(feature="git")]
@@ -290,14 +285,20 @@ mod test {
         ($name:ident, $field:expr) => {
             #[test]
             fn $name() {
-                setup("0").print_section($field).unwrap();
-                setup("E").print_section($field).unwrap();
+                {
+                    let stdout = StandardStream::stdout(ColorChoice::Always);
+                    setup(stdout.lock(), Some(0)).print_section($field).unwrap();
+                }
+                {
+                    let stdout = StandardStream::stdout(ColorChoice::Always);
+                    setup(stdout.lock(), Some(1)).print_section($field).unwrap();
+                }
             }
         }
     }
 
-    fn setup(rval: impl Into<OsString>) -> FieldWriter {
-        FieldWriter::new(StandardStream::stdout(ColorChoice::Always), rval.into())
+    fn setup<'a>(stream: StandardStreamLock<'a>, rval: Option<i32>) -> FieldWriter<'a> {
+        FieldWriter::new(stream, rval.into())
     }
 
     test!(exit_code, Field::ExitCode);
@@ -317,7 +318,7 @@ mod test {
 
     #[test]
     fn default() {
-        print_default("0").unwrap();
-        print_default("E").unwrap();
+        print_default(Some(0)).unwrap();
+        print_default(Some(1)).unwrap();
     }
 }
