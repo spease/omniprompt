@@ -253,8 +253,7 @@ impl<T: Write> FieldWriter<T> {
             #[cfg(feature="tty")]
             Field::Tty => {
                 use std::os::unix::io::AsRawFd;
-                let stdin_fd = std::io::stdin().as_raw_fd();
-                write!(stream, "{}", nix::unistd::ttyname(stdin_fd)?.to_string_lossy().yellow())?;
+                write!(stream, "{}", nix::unistd::ttyname(std::io::stdin())?.to_string_lossy().yellow())?;
             }
             Field::Whoami => {
                 let_workaround! {
