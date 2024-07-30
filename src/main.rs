@@ -6,59 +6,102 @@ use git2::Repository;
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLock, WriteColor};
 
-struct ColorCache {
-    blue: ColorSpec,
-    blue_bold: ColorSpec,
-    cyan: ColorSpec,
-    cyan_bold: ColorSpec,
-    green_bold: ColorSpec,
-    magenta: ColorSpec,
-    magenta_bold: ColorSpec,
-    red: ColorSpec,
-    red_bold: ColorSpec,
-    yellow: ColorSpec,
-    yellow_bold: ColorSpec,
-}
+mod colors {
+    use std::fmt::Display;
+    use std::path::Path;
+    use std::ffi::OsStr;
 
-impl Default for ColorCache {
-    fn default() -> Self {
-        let mut out = ColorCache {
-            blue: ColorSpec::new(),
-            blue_bold: ColorSpec::new(),
-            cyan: ColorSpec::new(),
-            cyan_bold: ColorSpec::new(),
-            green_bold: ColorSpec::new(),
-            magenta: ColorSpec::new(),
-            magenta_bold: ColorSpec::new(),
-            red: ColorSpec::new(),
-            red_bold: ColorSpec::new(),
-            yellow: ColorSpec::new(),
-            yellow_bold: ColorSpec::new(),
-        };
-        out.blue.set_fg(Some(Color::Blue));
-        out.blue_bold.set_fg(Some(Color::Blue)).set_bold(true);
-        out.cyan.set_fg(Some(Color::Cyan));
-        out.cyan_bold.set_fg(Some(Color::Cyan)).set_bold(true);
-        out.green_bold.set_fg(Some(Color::Green)).set_bold(true);
-        out.magenta.set_fg(Some(Color::Magenta));
-        out.magenta_bold.set_fg(Some(Color::Magenta)).set_bold(true);
-        out.red.set_fg(Some(Color::Red));
-        out.red_bold.set_fg(Some(Color::Red)).set_bold(true);
-        out.yellow.set_fg(Some(Color::Yellow));
-        out.yellow_bold.set_fg(Some(Color::Yellow)).set_bold(true);
-        out
+    thread_local! {
+        static ESCAPES: (&'static str, &'static str) = {
+            let ppid = std::os::unix::process::parent_id();
+            Path::new(&format!("/proc/{ppid}/exe"))
+                .read_link()
+                .ok()
+                .and_then(|p| {
+                    if p.file_name() == Some(OsStr::new("zsh")) {
+                        Some(("\x25\x7b", "\x25\x7d"))
+                    } else if p.file_name() == Some(OsStr::new("bash")) {
+                        Some((r#"\["#, r#"\]"#))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(("",""))
+        }
     }
+
+    macro_rules! def_colors {
+        ($($color_name:ident | $color_name_lower: ident => ($color:literal, $reset:literal)),+) => {
+            $(
+                pub struct $color_name<T: Display>(T);
+
+                impl<T: Display> Display for $color_name<T> {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        ESCAPES.with(|(escape_begin, escape_end)| {
+                            write!(f, concat!("{}", "\x1b[", $color, "m", "{}{}{}", "\x1b[", $reset, "m", "{}"), escape_begin, escape_end, self.0, escape_begin, escape_end)
+                            /*
+                            if supports_color::on_cached(supports_color::Stream::Stdout).is_some() {
+                                write!(f, concat!("{}", "\x1b[", $color, "m", "{}{}{}", "\x1b[", $reset, "m", "{}"), escape_begin, escape_end, self.0, escape_begin, escape_end)
+                            } else {
+                                self.0.fmt(f)
+                            }
+                            */
+                        })
+                    }
+                }
+            )+
+
+            pub trait Colorizer {
+                type Target: Display;
+                $(
+                    fn $color_name_lower(self) -> $color_name<Self::Target>;
+                )+
+            }
+
+            impl<T> Colorizer for T where T: Display {
+                type Target = T;
+
+                $(
+                    fn $color_name_lower(self) -> $color_name<Self::Target> {
+                        $color_name(self)
+                    }
+                )+
+            }
+        }
+    }
+
+    def_colors! {
+        Bold | bold => (1, 22),
+        Red | red => (31, 39),
+        Green | green => (32, 39),
+        Yellow | yellow => (33, 39),
+        Blue | blue => (34, 39),
+        Magenta | magenta => (35, 39),
+        Cyan | cyan => (36, 39)
+    }
+
 }
 
-struct FieldWriter<'a> {
-    color_cache: ColorCache,
+use colors::Colorizer;
+
+macro_rules! let_workaround {
+    (let $name:ident = $val:expr; $($rest:tt)+) => {
+        match $val {
+            $name => {
+                let_workaround! { $($rest)+ }
+            }
+        }
+    };
+    ($($rest:tt)+) => { $($rest)+ }
+}
+
+struct FieldWriter<T: Write> {
     column_count: usize,
     errors: String,
     exit_code: Option<i32>,
     row_count: usize,
-    stream: StandardStreamLock<'a>,
+    stream: T,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -79,16 +122,9 @@ enum Field {
     Whoami,
 }
 
-impl<'a> Drop for FieldWriter<'a> {
-    fn drop(&mut self) {
-        self.stream.reset().expect("Failed to reset output stream");
-    }
-}
-
-impl<'a> FieldWriter<'a> {
-    fn new(stream: StandardStreamLock<'a>, exit_code: Option<i32>) -> Self {
+impl<T: Write> FieldWriter<T> {
+    fn new(stream: T, exit_code: Option<i32>) -> Self {
         Self {
-            color_cache: ColorCache::default(),
             column_count: 0,
             errors: String::new(),
             exit_code,
@@ -104,7 +140,7 @@ impl<'a> FieldWriter<'a> {
         Ok(())
     }
 
-    fn print_field(function: Field, color_cache: &ColorCache, exit_code: Option<i32>, stream: &mut StandardStreamLock<'a>) -> Result<()> {
+    fn print_field(function: Field, exit_code: Option<i32>, stream: &mut T) -> Result<()> {
         #[cfg(any(not(unix)))]
         let si = {
             use sysinfo::{RefreshKind};
@@ -117,14 +153,16 @@ impl<'a> FieldWriter<'a> {
         };
         match function {
             Field::ExitCode => {
-                stream.set_color(if exit_code == Some(0) { &color_cache.green_bold } else { &color_cache.red_bold})?;
-                stream.write_all(exit_code.map(|s|s.to_string()).unwrap_or(String::new()).as_bytes())?;
+                match exit_code {
+                    Some(0) => write!(stream, "{}", 0.green().bold())?,
+                    Some(v) => write!(stream, "{}", v.red().bold())?,
+                    None => {},
+                }
             }
             #[cfg(feature="git")]
             Field::Git => {
-                stream.set_color(&color_cache.yellow)?;
                 if let Ok(repo) = Repository::discover(".") {
-                    stream.write_all(repo.head().context("trying to get HEAD")?.shorthand().unwrap_or("<UNKNOWN>").as_bytes())?;
+                    write!(stream, "{}", repo.head().context("trying to get HEAD")?.shorthand().unwrap_or("<UNKNOWN>").yellow())?;
                 }
             },
             #[cfg(feature="network")]
@@ -135,38 +173,68 @@ impl<'a> FieldWriter<'a> {
             },
             #[cfg(feature="platform")]
             Field::Platform => {
-                stream.set_color(&color_cache.red)?;
-                 if let Some(os_version) = sysinfo::System::os_version() {
-                     write!(stream, "{} ({})", sysinfo::System::distribution_id(), os_version)?;
-                 }
-                 #[cfg(unix)]
-                 write!(
-                     stream,
-                     "/{}/{}",
-                     nix::sys::utsname::uname()?.release().to_string_lossy(),
-                     std::env::consts::ARCH
-                 )?;
-                 #[cfg(not(unix))]
-                 write!(stream, "/{}", std::env::consts::ARCH)?;
+                #[cfg(unix)]
+                if let Some(os_version) = sysinfo::System::os_version() {
+                    write!(
+                        stream,
+                        "{}",
+                        format_args!(
+                            "{} ({})/{}/{}",
+                            sysinfo::System::distribution_id(),
+                            os_version,
+                            nix::sys::utsname::uname()?.release().to_string_lossy(),
+                            std::env::consts::ARCH
+                        ).red()
+                    )?;
+                } else {
+                    write!(
+                        stream,
+                        "{}",
+                        format_args!(
+                            "{}/{}",
+                            nix::sys::utsname::uname()?.release().to_string_lossy(),
+                            std::env::consts::ARCH
+                        ).red()
+                    )?;
+                }
+                #[cfg(not(unix))]
+                if let Some(os_version) = sysinfo::System::os_version() {
+                    write!(
+                        stream,
+                        "{}",
+                        format_args!(
+                            "{} ({})/{}",
+                            sysinfo::System::distribution_id(),
+                            os_version
+                            std::env::consts::ARCH
+                        ).red()
+                    )?;
+                } else {
+                    write!(
+                        stream,
+                        "{}",
+                        format_args!(
+                            "{}",
+                            std::env::consts::ARCH
+                        ).red()
+                    )?;
+                }
             },
             Field::Ppid => {
-                stream.set_color(&color_cache.yellow)?;
                 #[cfg(unix)]
-                write!(stream, "{}", std::os::unix::process::parent_id())?;
+                write!(stream, "{}", std::os::unix::process::parent_id().yellow())?;
                 #[cfg(not(unix))]
                 {
                     use sysinfo::{ProcessExt, SystemExt};
                     let pid = sysinfo::get_current_pid().map_err(|e|anyhow!("{}",e))?;
                     let parent_pid = si.process(pid).ok_or_else(||anyhow!("Couldn't find current PID"))?.parent().ok_or_else(||anyhow!("No parent for current process"))?;
-                    write!(stream, "{}", parent_pid)?;
+                    write!(stream, "{}", parent_pid.yellow())?;
                 }
             }
             Field::Prompt => {
-                stream.set_color(&color_cache.magenta_bold)?;
-                stream.write_all(b"$")?;
+                write!(stream, "{}", "$".magenta().bold())?;
             }
             Field::Pwd => {
-                stream.set_color(&color_cache.yellow_bold)?;
                 let cwd = std::env::current_dir()?;
                 let final_path = match dirs::home_dir() {
                     Some(home_dir) => match cwd.strip_prefix(home_dir) {
@@ -176,34 +244,34 @@ impl<'a> FieldWriter<'a> {
                     },
                     None => cwd,
                 };
-                write!(stream, "{}", final_path.display())?;
+                write!(stream, "{}", final_path.display().yellow().bold())?;
             }
             Field::Time => {
-                stream.set_color(&color_cache.magenta)?;
                 // stream.write_all(Local::now().to_rfc3339().as_bytes())?;
-                write!(stream, "{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %Z"))?;
+                write!(stream, "{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").magenta())?;
             }
             #[cfg(feature="tty")]
             Field::Tty => {
                 use std::os::unix::io::AsRawFd;
-                stream.set_color(&color_cache.yellow)?;
                 let stdin_fd = std::io::stdin().as_raw_fd();
-                stream.write_all(nix::unistd::ttyname(stdin_fd)?.to_string_lossy().as_bytes())?;
+                write!(stream, "{}", nix::unistd::ttyname(stdin_fd)?.to_string_lossy().yellow())?;
             }
             Field::Whoami => {
-                stream.set_color(&color_cache.cyan_bold)?;
-                stream.write_all(whoami::username().as_bytes())?;
-                stream.set_color(&color_cache.cyan)?;
-                stream.write_all(b"@")?;
-                stream.set_color(&color_cache.cyan_bold)?;
-                stream.write_all(whoami::fallible::hostname().unwrap_or_else(|_|String::from("???")).as_bytes())?;
-                if let Some(ssh_connection) = std::env::var_os("SSH_CONNECTION") {
-                    let mut pieces = ssh_connection.to_str().ok_or_else(||anyhow!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
-                    let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||anyhow!("Missing server IP"))?)?;
-                    let ssh_server_port = u16::from_str(pieces.next().ok_or_else(||anyhow!("Missing server port"))?)?;
+                let_workaround! {
+                    let first = format_args!(
+                        "{}@{}",
+                        whoami::username().bold(),
+                        whoami::fallible::hostname().unwrap_or_else(|_|String::from("???")).bold()
+                    );
+                    if let Some(ssh_connection) = std::env::var_os("SSH_CONNECTION") {
+                        let mut pieces = ssh_connection.to_str().ok_or_else(||anyhow!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
+                        let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||anyhow!("Missing server IP"))?)?;
+                        let ssh_server_port = u16::from_str(pieces.next().ok_or_else(||anyhow!("Missing server port"))?)?;
 
-                    stream.set_color(&color_cache.cyan)?;
-                    write!(stream, " ({}:{})", ssh_server_ip, ssh_server_port)?;
+                        write!(stream, "{}", format_args!("{} ({}:{})", first, ssh_server_ip, ssh_server_port).cyan())?;
+                    } else {
+                        write!(stream, "{}", first.cyan())?;
+                    }
                 }
             }
         }
@@ -213,13 +281,11 @@ impl<'a> FieldWriter<'a> {
 
     fn print_section(&mut self, function: Field) -> Result<()> {
         if self.column_count != 0 {
-            self.stream.reset()?;
             self.stream.write_all(if self.row_count == 0 { b" - " } else { b"-" })?;
         }
-        self.stream.set_color(&self.color_cache.blue_bold)?;
-        self.stream.write_all(if self.column_count != 0 { b"[" } else if self.row_count == 0 { "┌─[".as_bytes() } else { "└─[".as_bytes() })?;
+        write!(self.stream, "{}", (if self.column_count != 0 { "[" } else if self.row_count == 0 { "┌─[" } else { "└─[" }).blue().bold())?;
 
-        if let Err(e) = Self::print_field(function, &self.color_cache, self.exit_code, &mut self.stream) {
+        if let Err(e) = Self::print_field(function, self.exit_code, &mut self.stream) {
             use std::fmt::Write;
             if self.errors.is_empty() {
                 write!(self.errors, "{:?}", e)?;
@@ -229,15 +295,13 @@ impl<'a> FieldWriter<'a> {
         }
         self.column_count += 1;
 
-        self.stream.set_color(&self.color_cache.blue_bold)?;
-        self.stream.write_all(if function != Field::Prompt { b"]" } else { b"]> " })?;
+        write!(self.stream, "{}", (if function != Field::Prompt { "]" } else { "]> " }).blue().bold())?;
 
         Ok(())
     }
 
     fn print_errors(&mut self) -> Result<()> {
-        self.stream.set_color(&self.color_cache.red_bold)?;
-        self.stream.write_all(self.errors.as_bytes())?;
+        write!(self.stream, "{}", (&self.errors).red().bold())?;
         Ok(())
     }
 
@@ -247,27 +311,34 @@ impl<'a> FieldWriter<'a> {
 }
 
 fn print_default(exit_code: Option<i32>) -> Result<()> {
-    let stdout = StandardStream::stdout(ColorChoice::Always);
-    let mut fw = FieldWriter::new(stdout.lock(), exit_code);
+    let mut out = [0u8; 1024];
+    let out_len = out.len() - {
+        let mut out_written = &mut out[..];
+        // let stdout = std::io::stdout();
+        // let mut fw = FieldWriter::new(stdout.lock(), exit_code);
+        let mut fw = FieldWriter::new(&mut out_written, exit_code);
 
-    fw.print_section(Field::Whoami)?;
-    fw.print_section(Field::Pwd)?;
-    fw.print_section(Field::Ppid)?;
-    fw.print_section(Field::Time)?;
-    #[cfg(feature="platform")]
-    fw.print_section(Field::Platform)?;
-    #[cfg(feature="network")]
-    fw.print_section(Field::Network)?;
-    fw.print_line()?;
-    fw.print_section(Field::ExitCode)?;
-    #[cfg(feature="git")]
-    fw.print_section(Field::Git)?;
-    if fw.has_errors() {
+        fw.print_section(Field::Whoami)?;
+        fw.print_section(Field::Pwd)?;
+        fw.print_section(Field::Ppid)?;
+        fw.print_section(Field::Time)?;
+        #[cfg(feature="platform")]
+        fw.print_section(Field::Platform)?;
+        #[cfg(feature="network")]
+        fw.print_section(Field::Network)?;
         fw.print_line()?;
-        fw.print_errors()?;
-        fw.print_line()?;
-    }
-    fw.print_section(Field::Prompt)?;
+        fw.print_section(Field::ExitCode)?;
+        #[cfg(feature="git")]
+        fw.print_section(Field::Git)?;
+        if fw.has_errors() {
+            fw.print_line()?;
+            fw.print_errors()?;
+            fw.print_line()?;
+        }
+        fw.print_section(Field::Prompt)?;
+        out_written.len()
+    };
+    std::io::stdout().write_all(&out[..out_len])?;
     Ok(())
 }
 
@@ -286,18 +357,18 @@ mod test {
             #[test]
             fn $name() {
                 {
-                    let stdout = StandardStream::stdout(ColorChoice::Always);
+                    let stdout = std::io::stdout();
                     setup(stdout.lock(), Some(0)).print_section($field).unwrap();
                 }
                 {
-                    let stdout = StandardStream::stdout(ColorChoice::Always);
+                    let stdout = std::io::stdout();
                     setup(stdout.lock(), Some(1)).print_section($field).unwrap();
                 }
             }
         }
     }
 
-    fn setup<'a>(stream: StandardStreamLock<'a>, rval: Option<i32>) -> FieldWriter<'a> {
+    fn setup<T: Write>(stream: T, rval: Option<i32>) -> FieldWriter<T> {
         FieldWriter::new(stream, rval.into())
     }
 
