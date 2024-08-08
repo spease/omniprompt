@@ -1,8 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::Local;
 use core::str::FromStr;
-#[cfg(feature="git")]
-use git2::Repository;
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
@@ -161,8 +159,8 @@ impl<T: Write> FieldWriter<T> {
             }
             #[cfg(feature="git")]
             Field::Git => {
-                if let Ok(repo) = Repository::discover(".") {
-                    write!(stream, "{}", repo.head().context("trying to get HEAD")?.shorthand().unwrap_or("<UNKNOWN>").yellow())?;
+                if let Ok(repo) = gix::discover(".") {
+                    write!(stream, "{}", repo.head().context("trying to get HEAD")?.referent_name().map_or("<UNKNOWN>".into(), |s|s.file_name()).yellow())?;
                 }
             },
             #[cfg(feature="network")]
