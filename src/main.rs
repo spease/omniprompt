@@ -308,7 +308,7 @@ impl<T: Write> FieldWriter<T> {
 }
 
 fn print_default(exit_code: Option<i32>) -> Result<()> {
-    let mut out = [0u8; 1024];
+    let mut out = [0u8; 2048];
     let out_len = out.len() - {
         let mut out_written = &mut out[..];
         // let stdout = std::io::stdout();
