@@ -257,8 +257,8 @@ impl<T: Write> FieldWriter<T> {
                 let_workaround! {
                     let first = format_args!(
                         "{}@{}",
-                        whoami::username().bold(),
-                        whoami::fallible::hostname().unwrap_or_else(|_|String::from("???")).bold()
+                        whoami::username().red().bold(),
+                        whoami::fallible::hostname().unwrap_or_else(|_|String::from("???")).red().bold()
                     );
                     if let Some(ssh_connection) = std::env::var_os("SSH_CONNECTION") {
                         let mut pieces = ssh_connection.to_str().ok_or_else(||anyhow!("Invalid UTF-8 for SSH_CONNECTION"))?.split(' ').skip(2);
@@ -280,7 +280,7 @@ impl<T: Write> FieldWriter<T> {
         if self.column_count != 0 {
             self.stream.write_all(if self.row_count == 0 { b" - " } else { b"-" })?;
         }
-        write!(self.stream, "{}", (if self.column_count != 0 { "[" } else if self.row_count == 0 { "┌─[" } else { "└─[" }).blue().bold())?;
+        write!(self.stream, "{}", (if self.column_count != 0 { "[" } else if self.row_count == 0 { "┌─[" } else { "└─[" }).red().bold())?;
 
         if let Err(e) = Self::print_field(function, self.exit_code, &mut self.stream) {
             use std::fmt::Write;
@@ -292,7 +292,7 @@ impl<T: Write> FieldWriter<T> {
         }
         self.column_count += 1;
 
-        write!(self.stream, "{}", (if function != Field::Prompt { "]" } else { "]> " }).blue().bold())?;
+        write!(self.stream, "{}", (if function != Field::Prompt { "]" } else { "]> " }).red().bold())?;
 
         Ok(())
     }
