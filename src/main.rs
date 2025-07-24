@@ -7,25 +7,16 @@ use std::path::Path;
 
 mod colors {
     use std::fmt::Display;
-    use std::path::Path;
-    use std::ffi::OsStr;
 
     thread_local! {
         static ESCAPES: (&'static str, &'static str) = {
-            let ppid = std::os::unix::process::parent_id();
-            Path::new(&format!("/proc/{ppid}/exe"))
-                .read_link()
-                .ok()
-                .and_then(|p| {
-                    if p.file_name() == Some(OsStr::new("zsh")) {
-                        Some(("\x25\x7b", "\x25\x7d"))
-                    } else if p.file_name() == Some(OsStr::new("bash")) {
-                        Some((r#"\["#, r#"\]"#))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(("",""))
+            if std::env::var_os("ZSH_VERSION").is_some() {
+                ("\x25\x7b", "\x25\x7d")
+            } else if std::env::var_os("BASH_VERSION").is_some() {
+                (r#"\["#, r#"\]"#)
+            } else {
+                ("","")
+            }
         }
     }
 
