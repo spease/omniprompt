@@ -3,7 +3,7 @@ name = "omniprompt"
 version = "0.1.2"
 authors = ["Steven Pease <peasteven@gmail.com>"]
 description = "A very customized prompt"
-edition = "2018"
+edition = "2024"
 repository = "https://github.com/spease/omniprompt.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
