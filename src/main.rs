@@ -13,7 +13,7 @@ mod colors {
             if std::env::var_os("ZSH_VERSION").is_some() {
                 ("\x25\x7b", "\x25\x7d")
             } else if std::env::var_os("BASH_VERSION").is_some() {
-                (r#"\["#, r#"\]"#)
+                (r"\[", r"\]")
             } else {
                 ("","")
             }
@@ -112,7 +112,7 @@ enum Field {
 }
 
 impl<T: Write> FieldWriter<T> {
-    fn new(stream: T, exit_code: Option<i32>) -> Self {
+    const fn new(stream: T, exit_code: Option<i32>) -> Self {
         Self {
             column_count: 0,
             errors: String::new(),
@@ -130,7 +130,7 @@ impl<T: Write> FieldWriter<T> {
     }
 
     fn print_field(function: Field, exit_code: Option<i32>, stream: &mut T) -> Result<()> {
-        #[cfg(any(not(unix)))]
+        #[cfg(not(unix))]
         let si = {
             use sysinfo::{RefreshKind};
             let mut rk = RefreshKind::new();
@@ -151,14 +151,14 @@ impl<T: Write> FieldWriter<T> {
             #[cfg(feature="git")]
             Field::Git => {
                 if let Ok(repo) = gix::discover(".") {
-                    write!(stream, "{}", repo.head().context("trying to get HEAD")?.referent_name().map_or("<UNKNOWN>".into(), |s|s.file_name()).yellow())?;
+                    write!(stream, "{}", repo.head().context("trying to get HEAD")?.referent_name().map_or_else(||"<UNKNOWN>".into(), |s|s.file_name()).yellow())?;
                 }
             },
             #[cfg(feature="network")]
             Field::Network => {
                 use bytesize::ByteSize;
                 let (upload, download) = sysinfo::Networks::new_with_refreshed_list().into_iter().map(|(_, nw)| (ByteSize(nw.received()), ByteSize(nw.transmitted()))).fold((ByteSize(0),ByteSize(0)), |sum,current|(sum.0+current.0, sum.1+current.1));
-                write!(stream, "↑{}↓{}", upload, download)?;
+                write!(stream, "↑{upload}↓{download}")?;
             },
             #[cfg(feature="platform")]
             Field::Platform => {
@@ -241,7 +241,6 @@ impl<T: Write> FieldWriter<T> {
             }
             #[cfg(feature="tty")]
             Field::Tty => {
-                use std::os::unix::io::AsRawFd;
                 write!(stream, "{}", nix::unistd::ttyname(std::io::stdin())?.to_string_lossy().yellow())?;
             }
             Field::Whoami => {
@@ -256,7 +255,7 @@ impl<T: Write> FieldWriter<T> {
                         let ssh_server_ip = IpAddr::from_str(pieces.next().ok_or_else(||anyhow!("Missing server IP"))?)?;
                         let ssh_server_port = u16::from_str(pieces.next().ok_or_else(||anyhow!("Missing server port"))?)?;
 
-                        write!(stream, "{}", format_args!("{} ({}:{})", first, ssh_server_ip, ssh_server_port).cyan())?;
+                        write!(stream, "{}", format_args!("{first} ({ssh_server_ip}:{ssh_server_port})").cyan())?;
                     } else {
                         write!(stream, "{}", first.cyan())?;
                     }
@@ -276,14 +275,14 @@ impl<T: Write> FieldWriter<T> {
         if let Err(e) = Self::print_field(function, self.exit_code, &mut self.stream) {
             use std::fmt::Write;
             if self.errors.is_empty() {
-                write!(self.errors, "{:?}", e)?;
+                write!(self.errors, "{e:?}")?;
             } else {
-                write!(self.errors, "\n{:?}", e)?;
+                write!(self.errors, "\n{e:?}")?;
             }
         }
         self.column_count += 1;
 
-        write!(self.stream, "{}", (if function != Field::Prompt { "]" } else { "]> " }).red().bold())?;
+        write!(self.stream, "{}", (if function == Field::Prompt { "]> " } else { "]" }).red().bold())?;
 
         Ok(())
     }
@@ -293,7 +292,7 @@ impl<T: Write> FieldWriter<T> {
         Ok(())
     }
 
-    fn has_errors(&self) -> bool {
+    const fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
 }
